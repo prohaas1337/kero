@@ -1,12 +1,11 @@
 @echo off
 title LAN Party Lejatszo
 
-:: Port 80-hoz rendszergazda jogosultsag kell
+:: Ha nem admin, auto-elevate UAC-on keresztul
 net session >nul 2>&1
 if %errorlevel% neq 0 (
-    echo  Rendszergazdakent kell futtatni! (jobb klikk -> Futtatas rendszergazdakent)
-    pause
-    exit /b 1
+    powershell -Command "Start-Process '%~f0' -Verb RunAs -WorkingDirectory '%~dp0'"
+    exit /b
 )
 
 echo.
@@ -25,12 +24,6 @@ if %errorlevel% neq 0 (
 
 echo  Csomagok telepitese / ellenorzese...
 pip install -r requirements.txt --quiet --disable-pip-version-check
-if %errorlevel% neq 0 (
-    echo  HIBA: Csomagok telepitese sikertelen!
-    pause
-    exit /b 1
-)
 
 echo.
 python app.py
-pause
