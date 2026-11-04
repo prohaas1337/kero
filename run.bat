@@ -22,7 +22,7 @@ if %errorlevel% neq 0 (
 )
 
 echo  Csomagok telepitese...
-pip install -r requirements.txt --quiet --disable-pip-version-check
+pip install -r requirements.txt --disable-pip-version-check
 
 echo.
 python app.py > log.txt 2>&1
