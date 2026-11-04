@@ -25,10 +25,6 @@ echo  Csomagok telepitese...
 pip install -r requirements.txt --disable-pip-version-check
 
 echo.
-python app.py > log.txt 2>&1
-echo.
-echo  === HIBA LOG ===
-type log.txt
-echo  ================
+python app.py
 echo.
 pause
