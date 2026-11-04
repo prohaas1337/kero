@@ -1,6 +1,14 @@
 @echo off
 title LAN Party Lejatszo
 
+:: Port 80-hoz rendszergazda jogosultsag kell
+net session >nul 2>&1
+if %errorlevel% neq 0 (
+    echo  Rendszergazdakent kell futtatni! (jobb klikk -> Futtatas rendszergazdakent)
+    pause
+    exit /b 1
+)
+
 echo.
 echo  LAN Party Lejatszo - inditas...
 echo.
