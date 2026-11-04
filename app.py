@@ -108,6 +108,46 @@ def next_video():
 def skip_video():
     return next_video()
 
+@app.route('/api/remove', methods=['POST'])
+def remove_video():
+    global queue, current_index
+    data = request.get_json() or {}
+    item_id = data.get('id')
+
+    idx = next((i for i, v in enumerate(queue) if v['id'] == item_id), None)
+    if idx is None:
+        return jsonify({'error': 'Nem található'}), 404
+
+    playing_this = idx == current_index
+
+    queue.pop(idx)
+
+    if not queue:
+        current_index = -1
+        socketio.emit('queue_updated', queue_state())
+        socketio.emit('queue_ended', {})
+        return jsonify({'success': True})
+
+    if idx < current_index:
+        current_index -= 1
+    elif playing_this:
+        # current_index stays, now points to the next video (or past end)
+        if current_index >= len(queue):
+            socketio.emit('queue_updated', queue_state())
+            socketio.emit('queue_ended', {})
+            return jsonify({'success': True})
+        video = queue[current_index]
+        socketio.emit('queue_updated', queue_state())
+        socketio.emit('play_video', {
+            'video_id': video['video_id'],
+            'index': current_index,
+            'item': video,
+        })
+        return jsonify({'success': True})
+
+    socketio.emit('queue_updated', queue_state())
+    return jsonify({'success': True})
+
 @app.route('/api/clear', methods=['POST'])
 def clear_queue():
     global queue, current_index

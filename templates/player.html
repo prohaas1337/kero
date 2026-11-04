@@ -95,6 +95,17 @@
         .sq-info { flex: 1; min-width: 0; }
         .sq-title { font-size: 0.78rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .sq-sub { font-size: 0.68rem; color: #64748b; margin-top: 2px; }
+        .sq-del {
+            background: none;
+            border: 1px solid rgba(239,68,68,.3);
+            color: #f87171;
+            border-radius: 4px;
+            padding: 3px 7px;
+            font-size: 0.7rem;
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+        .sq-del:hover { background: rgba(239,68,68,.15); }
 
         /* Waiting screen */
         #waiting {
@@ -209,6 +220,7 @@
                         <div class="sq-title">${esc(v.title)}</div>
                         <div class="sq-sub">${esc(v.submitter)}</div>
                     </div>
+                    <button class="sq-del" onclick="removeVideo('${v.id}')">✕</button>
                 </div>`;
             }).join('');
             const cur = el.querySelector('.current');
@@ -220,6 +232,14 @@
         }
 
         function doSkip() { fetch('/api/skip', { method: 'POST' }); }
+
+        function removeVideo(id) {
+            fetch('/api/remove', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ id }),
+            });
+        }
 
         function toggleSidebar() {
             document.getElementById('sidebar').classList.toggle('open');
