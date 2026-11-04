@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+    <meta charset="UTF-8">
+    <title>LAN Party Player</title>
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body, html { background: #000; height: 100%; overflow: hidden; font-family: 'Segoe UI', system-ui, sans-serif; color: #fff; }
+
+        /* Force YT iframe to fill container */
+        #yt-player iframe {
+            position: absolute !important;
+            top: 0 !important; left: 0 !important;
+            width: 100% !important; height: 100% !important;
+        }
+        #yt-player {
+            position: fixed;
+            inset: 0;
+            background: #000;
+        }
+
+        /* Bottom info bar — fades in on video start */
+        #bar {
+            position: fixed;
+            bottom: 0; left: 0; right: 0;
+            background: linear-gradient(transparent, rgba(0,0,0,.85));
+            padding: 48px 28px 20px;
+            display: flex;
+            align-items: flex-end;
+            justify-content: space-between;
+            gap: 16px;
+            opacity: 0;
+            transition: opacity 0.4s;
+            pointer-events: none;
+            z-index: 5;
+        }
+        #bar.visible { opacity: 1; pointer-events: auto; }
+        #bar-info { flex: 1; min-width: 0; }
+        #bar-label { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.12em; color: #f59e0b; margin-bottom: 6px; }
+        #bar-title { font-size: 1.4rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        #bar-sub { font-size: 0.85rem; color: #94a3b8; margin-top: 5px; }
+
+        #btn-skip {
+            background: rgba(255,255,255,.15);
+            border: 1px solid rgba(255,255,255,.3);
+            color: #fff;
+            padding: 8px 18px;
+            border-radius: 7px;
+            cursor: pointer;
+            font-size: 0.875rem;
+            flex-shrink: 0;
+            transition: background 0.2s;
+        }
+        #btn-skip:hover { background: rgba(255,255,255,.28); }
+
+        /* Queue sidebar */
+        #btn-list {
+            position: fixed;
+            top: 14px; right: 14px;
+            background: rgba(0,0,0,.55);
+            border: 1px solid rgba(255,255,255,.2);
+            color: #fff;
+            padding: 6px 14px;
+            border-radius: 7px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            z-index: 10;
+            transition: background 0.2s;
+        }
+        #btn-list:hover { background: rgba(0,0,0,.75); }
+
+        #sidebar {
+            position: fixed;
+            top: 0; right: 0;
+            width: 300px; height: 100%;
+            background: rgba(0,0,0,.92);
+            border-left: 1px solid rgba(255,255,255,.1);
+            padding: 16px 14px;
+            overflow-y: auto;
+            transform: translateX(100%);
+            transition: transform 0.25s ease;
+            z-index: 9;
+        }
+        #sidebar.open { transform: translateX(0); }
+        #sidebar h3 { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; color: #64748b; margin-bottom: 14px; }
+        .sq-item {
+            display: flex; gap: 8px; align-items: center;
+            padding: 8px; border-radius: 6px; margin-bottom: 6px;
+        }
+        .sq-item.current { background: rgba(245,158,11,.14); }
+        .sq-item.past { opacity: 0.3; }
+        .sq-item img { width: 60px; height: 34px; object-fit: cover; border-radius: 3px; background: #111; flex-shrink: 0; }
+        .sq-pos { width: 18px; text-align: center; font-size: 0.72rem; color: #64748b; flex-shrink: 0; }
+        .sq-info { flex: 1; min-width: 0; }
+        .sq-title { font-size: 0.78rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .sq-sub { font-size: 0.68rem; color: #64748b; margin-top: 2px; }
+
+        /* Waiting screen */
+        #waiting {
+            position: fixed;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: #000;
+            gap: 14px;
+            z-index: 2;
+        }
+        #waiting.hidden { display: none; }
+        #waiting .big { font-size: 3rem; }
+        #waiting h2 { font-size: 1.6rem; color: #475569; }
+        #waiting p { color: #334155; font-size: 0.9rem; }
+    </style>
+</head>
+<body>
+    <div id="waiting">
+        <div class="big">📺</div>
+        <h2>LAN Party</h2>
+        <p>Várakozás videókra...</p>
+    </div>
+
+    <div id="yt-player"></div>
+
+    <div id="bar">
+        <div id="bar-info">
+            <div id="bar-label">▶ MOST MEGY</div>
+            <div id="bar-title">—</div>
+            <div id="bar-sub"></div>
+        </div>
+        <button id="btn-skip" onclick="doSkip()">⏭ Skip</button>
+    </div>
+
+    <button id="btn-list" onclick="toggleSidebar()">☰ Lista</button>
+
+    <div id="sidebar">
+        <h3>Lejátszási lista</h3>
+        <div id="sq-list"></div>
+    </div>
+
+    <script src="https://www.youtube.com/iframe_api"></script>
+    <script>
+        const socket = io();
+        let player = null, playerReady = false;
+        let queueData = [], currentIndex = -1;
+        let pendingId = null;
+
+        // YouTube IFrame API
+        function onYouTubeIframeAPIReady() {
+            player = new YT.Player('yt-player', {
+                width: '100%',
+                height: '100%',
+                playerVars: { autoplay: 1, controls: 1, rel: 0, modestbranding: 1 },
+                events: { onReady: onReady, onStateChange: onState },
+            });
+        }
+
+        function onReady() {
+            playerReady = true;
+            if (pendingId) { player.loadVideoById(pendingId); pendingId = null; }
+        }
+
+        function onState(e) {
+            if (e.data === YT.PlayerState.ENDED) {
+                fetch('/api/next', { method: 'POST' });
+            }
+        }
+
+        function play(videoId, item) {
+            document.getElementById('waiting').classList.add('hidden');
+            document.getElementById('bar').classList.add('visible');
+            if (item) updateBar(item);
+            if (playerReady) player.loadVideoById(videoId);
+            else pendingId = videoId;
+        }
+
+        function updateBar(item) {
+            document.getElementById('bar-title').textContent = item.title;
+            document.getElementById('bar-sub').textContent = 'Beküldte: ' + item.submitter;
+        }
+
+        socket.on('queue_updated', d => {
+            queueData = d.queue; currentIndex = d.current_index;
+            renderSidebar();
+            if (currentIndex >= 0 && currentIndex < queueData.length) updateBar(queueData[currentIndex]);
+        });
+
+        socket.on('play_video', d => play(d.video_id, d.item));
+
+        socket.on('queue_ended', () => {
+            document.getElementById('waiting').classList.remove('hidden');
+            document.getElementById('bar').classList.remove('visible');
+            if (player && playerReady) player.stopVideo();
+        });
+
+        function renderSidebar() {
+            const el = document.getElementById('sq-list');
+            if (!queueData.length) { el.innerHTML = '<div style="color:#475569;font-size:.8rem;">Üres lista</div>'; return; }
+            el.innerHTML = queueData.map((v, i) => {
+                const cur  = i === currentIndex;
+                const past = i < currentIndex;
+                const pos  = cur ? '▶' : (past ? '✓' : String(i + 1));
+                const thumb = `https://img.youtube.com/vi/${v.video_id}/mqdefault.jpg`;
+                return `<div class="sq-item${cur ? ' current' : ''}${past ? ' past' : ''}">
+                    <div class="sq-pos">${esc(pos)}</div>
+                    <img src="${thumb}" alt="" loading="lazy">
+                    <div class="sq-info">
+                        <div class="sq-title">${esc(v.title)}</div>
+                        <div class="sq-sub">${esc(v.submitter)}</div>
+                    </div>
+                </div>`;
+            }).join('');
+            const cur = el.querySelector('.current');
+            if (cur) cur.scrollIntoView({ block: 'nearest' });
+        }
+
+        function esc(s) {
+            return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        }
+
+        function doSkip() { fetch('/api/skip', { method: 'POST' }); }
+
+        function toggleSidebar() {
+            document.getElementById('sidebar').classList.toggle('open');
+        }
+
+        // Load initial state on page open
+        fetch('/api/queue').then(r => r.json()).then(d => {
+            queueData = d.queue; currentIndex = d.current_index;
+            renderSidebar();
+            if (currentIndex >= 0 && currentIndex < queueData.length) {
+                const v = queueData[currentIndex];
+                document.getElementById('waiting').classList.add('hidden');
+                document.getElementById('bar').classList.add('visible');
+                updateBar(v);
+                pendingId = v.video_id;  // played once YT API is ready
+            }
+        });
+    </script>
+</body>
+</html>

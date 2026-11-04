@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LAN Party — Videó kérések</title>
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <style>
+        :root {
+            --bg: #0a0a0f;
+            --surface: #13131a;
+            --border: #2a2a3a;
+            --accent: #7c3aed;
+            --accent-bright: #a855f7;
+            --text: #e2e8f0;
+            --muted: #64748b;
+            --success: #22c55e;
+            --warning: #f59e0b;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            min-height: 100vh;
+        }
+        header {
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            padding: 14px 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        header h1 { font-size: 1.1rem; }
+        header .sub { font-size: 0.8rem; color: var(--muted); }
+        .dot {
+            width: 8px; height: 8px; border-radius: 50%;
+            background: #ef4444; flex-shrink: 0;
+            transition: background 0.3s;
+        }
+        .dot.on { background: var(--success); }
+
+        .container { max-width: 580px; margin: 0 auto; padding: 20px 16px; }
+
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 24px;
+        }
+        .card-label {
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--muted);
+            margin-bottom: 16px;
+        }
+        label { display: block; font-size: 0.8rem; color: var(--muted); margin-bottom: 6px; }
+        input {
+            width: 100%;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 10px 14px;
+            color: var(--text);
+            font-size: 0.95rem;
+            margin-bottom: 14px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        input:focus { border-color: var(--accent); }
+        input::placeholder { color: var(--muted); }
+        button.submit {
+            width: 100%;
+            background: var(--accent);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            padding: 12px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s, transform 0.1s;
+        }
+        button.submit:hover:not(:disabled) { background: var(--accent-bright); }
+        button.submit:active:not(:disabled) { transform: scale(0.98); }
+        button.submit:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .flash {
+            padding: 10px 14px;
+            border-radius: 8px;
+            margin-top: 12px;
+            font-size: 0.875rem;
+            display: none;
+        }
+        .flash.ok  { background: rgba(34,197,94,.12); color: var(--success); border: 1px solid rgba(34,197,94,.3); }
+        .flash.err { background: rgba(239,68,68,.12); color: #f87171;       border: 1px solid rgba(239,68,68,.3); }
+
+        .q-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--muted);
+            margin-bottom: 12px;
+        }
+        .q-item {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            padding: 10px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            margin-bottom: 8px;
+            transition: border-color 0.2s, opacity 0.2s;
+        }
+        .q-item.current { border-color: var(--warning); background: rgba(245,158,11,.07); }
+        .q-item.past    { opacity: 0.35; }
+        .q-item img {
+            width: 80px; height: 45px;
+            object-fit: cover;
+            border-radius: 4px;
+            flex-shrink: 0;
+            background: #1a1a2e;
+        }
+        .q-info { flex: 1; min-width: 0; }
+        .q-title {
+            font-size: 0.875rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .q-meta { font-size: 0.75rem; color: var(--muted); margin-top: 4px; }
+        .q-pos {
+            width: 22px;
+            text-align: center;
+            font-size: 0.75rem;
+            color: var(--muted);
+            flex-shrink: 0;
+        }
+        .badge-now {
+            display: inline-block;
+            font-size: 0.65rem;
+            background: var(--warning);
+            color: #000;
+            font-weight: 700;
+            padding: 1px 6px;
+            border-radius: 3px;
+            margin-right: 4px;
+            vertical-align: middle;
+        }
+        .empty { text-align: center; color: var(--muted); padding: 36px 0; font-size: 0.9rem; }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="dot" id="dot"></div>
+        <div>
+            <h1>LAN Party</h1>
+            <div class="sub">Küldj videókat a lejátszási listára</div>
+        </div>
+    </header>
+
+    <div class="container">
+        <div class="card">
+            <div class="card-label">Videó hozzáadása</div>
+            <label for="url">YouTube link</label>
+            <input id="url" type="url" placeholder="https://youtube.com/watch?v=..." autocomplete="off" spellcheck="false">
+            <label for="name">Neved (opcionális)</label>
+            <input id="name" type="text" placeholder="Névtelen" maxlength="50" autocomplete="off">
+            <button class="submit" id="btn" onclick="submitVideo()">Hozzáadás a listához</button>
+            <div class="flash" id="flash"></div>
+        </div>
+
+        <div class="q-header">
+            <span>Lejátszási lista</span>
+            <span id="count">0 videó</span>
+        </div>
+        <div id="qList"><div class="empty">A lista üres — légy te az első!</div></div>
+    </div>
+
+    <script>
+        const socket = io();
+        let queueData = [], currentIndex = -1;
+
+        socket.on('connect',    () => document.getElementById('dot').classList.add('on'));
+        socket.on('disconnect', () => document.getElementById('dot').classList.remove('on'));
+        socket.on('queue_updated', d => { queueData = d.queue; currentIndex = d.current_index; render(); });
+
+        function render() {
+            const el = document.getElementById('qList');
+            const cnt = document.getElementById('count');
+            cnt.textContent = queueData.length + ' videó';
+            if (!queueData.length) {
+                el.innerHTML = '<div class="empty">A lista üres — légy te az első!</div>';
+                return;
+            }
+            el.innerHTML = queueData.map((v, i) => {
+                const cur  = i === currentIndex;
+                const past = i < currentIndex;
+                const pos  = cur ? '▶' : (past ? '✓' : String(i + 1));
+                const thumb = `https://img.youtube.com/vi/${v.video_id}/mqdefault.jpg`;
+                return `<div class="q-item${cur ? ' current' : ''}${past ? ' past' : ''}">
+                    <div class="q-pos">${esc(pos)}</div>
+                    <img src="${thumb}" alt="" loading="lazy">
+                    <div class="q-info">
+                        <div class="q-title">${esc(v.title)}</div>
+                        <div class="q-meta">${cur ? '<span class="badge-now">MOST MEGY</span>' : ''}${esc(v.submitter)}</div>
+                    </div>
+                </div>`;
+            }).join('');
+        }
+
+        function esc(s) {
+            return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+        }
+
+        async function submitVideo() {
+            const url  = document.getElementById('url').value.trim();
+            const name = document.getElementById('name').value.trim();
+            const btn  = document.getElementById('btn');
+            if (!url) { flash('Adj meg egy YouTube linket!', 'err'); return; }
+            btn.disabled = true;
+            btn.textContent = 'Küldés...';
+            try {
+                const r = await fetch('/api/add', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ url, submitter: name }),
+                });
+                const d = await r.json();
+                if (r.ok) {
+                    flash('Hozzáadva: ' + d.item.title, 'ok');
+                    document.getElementById('url').value = '';
+                } else {
+                    flash(d.error || 'Ismeretlen hiba', 'err');
+                }
+            } catch { flash('Kapcsolódási hiba', 'err'); }
+            btn.disabled = false;
+            btn.textContent = 'Hozzáadás a listához';
+        }
+
+        function flash(msg, type) {
+            const el = document.getElementById('flash');
+            el.textContent = msg;
+            el.className = 'flash ' + type;
+            el.style.display = 'block';
+            clearTimeout(el._t);
+            el._t = setTimeout(() => el.style.display = 'none', 4000);
+        }
+
+        document.getElementById('url').addEventListener('keydown', e => { if (e.key === 'Enter') submitVideo(); });
+    </script>
+</body>
+</html>
